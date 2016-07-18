@@ -63,11 +63,12 @@ class WeixinBot extends EventEmitter {
     super();
 
     // transporter for send qrcode image url
+    // 请不要依赖这个默认提供的邮件账户！。
     this.transporter = nodemailer.createTransport(options.mailOpts || {
       service: 'QQex',
       auth: {
-        user: 'weixinbot@feit.me',
-        pass: 'l53y$cf^7m3wth%^',
+        user: 'weixinbot@javascript.work',
+        pass: 'V0an1KqPdz4ZKNuP',
       },
     });
 
