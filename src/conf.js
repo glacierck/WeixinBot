@@ -1,7 +1,7 @@
 /* eslint-disable prefer-template */
 
 export function getUrls({
-  baseHost = 'wx.qq.com',
+  baseHost = 'wx2.qq.com',
   weixinHost = 'weixin.qq.com',
   fileHost = 'file.wx.qq.com',
   pushHost = 'webpush.weixin.qq.com',

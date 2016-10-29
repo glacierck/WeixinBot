@@ -36,7 +36,7 @@ const req = axios.create({
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2652.0 Safari/537.36',
-    'Referer': 'https://wx.qq.com/',
+    'Referer': 'https://wx2.qq.com/',
   },
   jar,
   withCredentials: true,
@@ -48,6 +48,7 @@ const req = axios.create({
 
 axiosCookieJarSupport(req);
 
+const secretPath = path.join(process.cwd(), '.secret.json');
 const makeDeviceID = () => 'e' + Math.random().toFixed(15).toString().substring(2, 17);
 
 class WeixinBot extends EventEmitter {
@@ -73,8 +74,17 @@ class WeixinBot extends EventEmitter {
   }
 
   async run() {
-    debug('开始登录...');
+    if (fs.existsSync(secretPath)) {
+      this.initConfig();
+      const secret = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
+      Object.assign(this, secret);
+      this.runLoop();
+    } else {
+      this.init();
+    }
+  }
 
+  initConfig() {
     this.baseHost = '';
     this.pushHost = '';
     this.uuid = '';
@@ -105,18 +115,23 @@ class WeixinBot extends EventEmitter {
 
     clearTimeout(this.checkSyncTimer);
     clearInterval(this.updataContactTimer);
+  }
 
+  async init() {
+    debug('开始登录...');
+
+    this.initConfig();
     try {
       this.uuid = await this.fetchUUID();
     } catch (e) {
       debug('fetch uuid error', e);
-      this.run();
+      this.init();
       return;
     }
 
     if (!this.uuid) {
       debug('获取 uuid 失败，正在重试...');
-      this.run();
+      this.init();
       return;
     }
 
@@ -149,7 +164,7 @@ class WeixinBot extends EventEmitter {
 
       if (this.checkTimes > 6) {
         debug('检查登录状态次数超出限制，重新获取二维码');
-        this.run();
+        this.init();
         return;
       }
     }
@@ -158,43 +173,51 @@ class WeixinBot extends EventEmitter {
       debug('正在获取凭据...');
       await this.fetchTickets();
       debug('获取凭据成功!');
-
-      debug('正在初始化参数...');
-      await this.webwxinit();
-      debug('初始化成功!');
-
-      debug('正在通知客户端网页端已登录...');
-      await this.notifyMobile();
-      debug('通知成功!');
-
-      debug('正在获取通讯录列表...');
-      await this.fetchContact();
-      debug('获取通讯录列表成功!');
-
-      // await this.fetchBatchgetContact();
-      this.pushHost = await this.lookupSyncCheckHost();
     } catch (e) {
-      debug('初始化主要参数步骤出错，正在重新登录...', e);
-      this.run();
+      debug('鉴权失败，正在重新登录...', e);
+      this.init();
       return;
     }
 
-    URLS = getUrls({ baseHost: this.baseHost, pushHost: this.pushHost });
-
     debug('开始循环拉取新消息');
     this.runLoop();
-
-    // auto update Contacts every ten minute
-    this.updataContactTimer = setInterval(() => {
-      this.updateContact();
-    }, 1000 * 60 * 10);
   }
 
   async runLoop() {
+    debug('正在初始化参数...');
+    try {
+      await this.webwxinit();
+    } catch (e) {
+      debug('登录信息已失效，正在重新获取二维码...');
+      this.init();
+      return;
+    }
+
+    debug('初始化成功!');
+
+    try {
+      debug('正在通知客户端网页端已登录...');
+      await this.notifyMobile();
+
+      debug('正在获取通讯录列表...');
+      await this.fetchContact();
+    } catch (e) {
+      debug('初始化信息失败，正在重试');
+      this.runLoop();
+    }
+
+    debug('通知成功!');
+    debug('获取通讯录列表成功!');
+
+    // await this.fetchBatchgetContact();
+    this.pushHost = await this.lookupSyncCheckHost();
+
+    URLS = getUrls({ baseHost: this.baseHost, pushHost: this.pushHost });
+
     const { selector, retcode } = await this.syncCheck();
     if (retcode !== '0') {
       debug('你在其他地方登录或登出了微信，正在尝试重新登录...');
-      this.run();
+      this.init();
       return;
     }
 
@@ -205,6 +228,11 @@ class WeixinBot extends EventEmitter {
     this.checkSyncTimer = setTimeout(() => {
       this.runLoop();
     }, 3e3);
+
+    // auto update Contacts every ten minute
+    this.updataContactTimer = setInterval(() => {
+      this.updateContact();
+    }, 1000 * 60 * 10);
   }
 
   async fetchUUID() {
@@ -325,6 +353,14 @@ class WeixinBot extends EventEmitter {
       Skey: this.skey,
       DeviceID: makeDeviceID(),
     };
+
+    fs.writeFileSync(secretPath, JSON.stringify({
+      skey: this.skey,
+      sid: this.sid,
+      uin: this.uin,
+      passTicket: this.passTicket,
+      baseRequest: this.baseRequest,
+    }), 'utf8');
   }
 
   async webwxinit() {
@@ -474,7 +510,7 @@ class WeixinBot extends EventEmitter {
     const { data } = result;
 
     if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
-      throw new Error('Notify mobile fail');
+      throw new Error('通知客户端失败');
     }
   }
 
@@ -502,7 +538,7 @@ class WeixinBot extends EventEmitter {
     const { data } = result;
 
     if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
-      throw new Error('Fetch contact fail');
+      throw new Error('获取通讯录失败');
     }
 
     this.Members.insert(data.MemberList);
