@@ -1,7 +1,6 @@
 /* eslint-disable prefer-template */
 
 export function getUrls({
-  protocol = 'https',
   baseHost = 'wx.qq.com',
   weixinHost = 'weixin.qq.com',
   fileHost = 'file.wx.qq.com',
@@ -10,7 +9,7 @@ export function getUrls({
   return {
     LANG: 'zh_CN',
     QRCODE_PATH: 'https://login.weixin.qq.com/qrcode/',
-    API_jsLogin: 'https://login.' + weixinHost + '/jslogin?appid=wx782c26e4c19acffb&redirect_uri=' + encodeURIComponent(protocol + '//' + baseHost + '/cgi-bin/mmwebwx-bin/webwxnewloginpage') + '&fun=new&lang=' + 'zh_CN',
+    API_jsLogin: 'https://login.' + weixinHost + '/jslogin',
     API_login: 'https://login.' + weixinHost + '/cgi-bin/mmwebwx-bin/login',
     API_synccheck: 'https://' + pushHost + '/cgi-bin/mmwebwx-bin/synccheck',
     API_webwxdownloadmedia: 'https://' + fileHost + '/cgi-bin/mmwebwx-bin/webwxgetmedia',

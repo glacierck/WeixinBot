@@ -3,15 +3,19 @@
 import fs from 'fs';
 import url from 'url';
 import path from 'path';
-import zlib from 'zlib';
+import http from 'http';
+import https from 'https';
+import axios from 'axios';
 import Debug from 'debug';
 import touch from 'touch';
+import tough from 'tough-cookie';
 import Datastore from 'nedb';
 import Promise from 'bluebird';
 import EventEmitter from 'events';
 import nodemailer from 'nodemailer';
-import RequestPromise from 'request-promise';
+import qrcode from 'qrcode-terminal';
 import FileCookieStore from 'tough-cookie-filestore';
+import axiosCookieJarSupport from 'node-axios-cookiejar';
 
 import { getUrls, CODES, SP_ACCOUNTS, PUSH_HOST_LIST } from './conf';
 
@@ -23,38 +27,26 @@ const logo = fs.readFileSync(path.join(__dirname, '..', 'logo.txt'), 'utf8');
 
 // try persistent cookie
 const cookiePath = path.join(process.cwd(), '.cookie.json');
-let jar;
-try {
-  touch.sync(cookiePath);
-  jar = RequestPromise.jar(new FileCookieStore(cookiePath));
-} catch (e) {
-  jar = RequestPromise.jar();
-}
+touch.sync(cookiePath);
+const jar = new tough.CookieJar(new FileCookieStore(cookiePath));
 
-const rp = RequestPromise.defaults({
+const req = axios.create({
+  timeout: 35e3,
   headers: {
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Encoding': 'gzip, deflate',
-    'Accept-Language': 'zh-CN,zh;q=0.8,en;q=0.6,zh-TW;q=0.4',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_2) ' +
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2652.0 Safari/537.36',
+    'Referer': 'https://wx.qq.com/',
   },
-
   jar,
-  encoding: null,
-  transform(buf, response) {
-    if (response.headers['content-encoding'] === 'deflate') {
-      const str = zlib.inflateRawSync(buf).toString();
-      try {
-        return JSON.parse(str);
-      } catch (e) {
-        return str;
-      }
-    }
-
-    return buf.toString();
-  },
+  withCredentials: true,
+  xsrfCookieName: null,
+  xsrfHeaderName: null,
+  httpAgent: new http.Agent({ keepAlive: true }),
+  httpsAgent: new https.Agent({ keepAlive: true }),
 });
+
+axiosCookieJarSupport(req);
 
 const makeDeviceID = () => 'e' + Math.random().toFixed(15).toString().substring(2, 17);
 
@@ -143,6 +135,8 @@ class WeixinBot extends EventEmitter {
       }, (e) => {
         if (e) debug(`发送二维码图片到邮箱 ${this.receiver} 失败`, e);
       });
+    } else {
+      qrcode.generate(qrcodeUrl.replace('/qrcode/', '/l/'));
     }
 
     // limit check times
@@ -213,18 +207,51 @@ class WeixinBot extends EventEmitter {
     }, 3e3);
   }
 
-  async checkLoginStep() {
-    let data;
+  async fetchUUID() {
+    let result;
     try {
-      data = await rp({
-        uri: URLS.API_login + `?uuid=${this.uuid}&tip=1&r=${+new Date}`,
-        timeout: 35e3,
+      result = await req.get(URLS.API_jsLogin, {
+        params: {
+          appid: 'wx782c26e4c19acffb',
+          fun: 'new',
+          lang: 'zh_CN',
+          _: +new Date,
+        },
+      });
+    } catch (e) {
+      debug('fetch uuid network error', e);
+      // network error retry
+      return await this.fetchUUID();
+    }
+
+    const { data } = result;
+
+    if (!/uuid = "(.+)";$/.test(data)) {
+      throw new Error('get uuid failed');
+    }
+
+    const uuid = data.match(/uuid = "(.+)";$/)[1];
+    return uuid;
+  }
+
+  async checkLoginStep() {
+    let result;
+
+    try {
+      result = await req.get(URLS.API_login, {
+        params: {
+          tip: 1,
+          uuid: this.uuid,
+          _: +new Date,
+        },
       });
     } catch (e) {
       debug('checkLoginStep network error', e);
       await this.checkLoginStep();
       return;
     }
+
+    const { data } = result;
 
     if (!/code=(\d{3});/.test(data)) {
       // retry
@@ -236,7 +263,7 @@ class WeixinBot extends EventEmitter {
     switch (loginCode) {
       case 200:
         debug('已点击确认登录!');
-        this.redirectUri = data.match(/redirect_uri="(.+)";$/)[1] + '&fun=new&version=v2';
+        this.redirectUri = data.match(/redirect_uri="(.+)";$/)[1] + '&fun=new';
         this.baseHost = url.parse(this.redirectUri).host;
         URLS = getUrls({ baseHost: this.baseHost });
         break;
@@ -256,173 +283,18 @@ class WeixinBot extends EventEmitter {
     return loginCode;
   }
 
-  async webwxinit() {
-    let data;
-    try {
-      data = await rp({
-        uri: URLS.API_webwxinit,
-        method: 'POST',
-        json: true,
-        body: {
-          BaseRequest: this.baseRequest,
-        },
-      });
-    } catch (e) {
-      debug('webwxinit network error', e);
-      // network error retry
-      await this.webwxinit();
-      return;
-    }
-
-    if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
-      throw new Error('Init Webwx failed');
-    }
-
-    this.my = data.User;
-    this.syncKey = data.SyncKey;
-    this.formateSyncKey = this.syncKey.List.map((item) => item.Key + '_' + item.Val).join('|');
-  }
-
-  async webwxsync() {
-    let data;
-    try {
-      data = await rp({
-        uri: URLS.API_webwxsync,
-        method: 'POST',
-        qs: {
-          sid: this.sid,
-          skey: this.skey,
-        },
-        json: true,
-        body: {
-          BaseRequest: this.baseRequest,
-          SyncKey: this.syncKey,
-          rr: ~new Date,
-        },
-      });
-    } catch (e) {
-      debug('webwxsync network error', e);
-      // network error retry
-      await this.webwxsync();
-      return;
-    }
-
-    this.syncKey = data.SyncKey;
-    this.formateSyncKey = this.syncKey.List.map((item) => item.Key + '_' + item.Val).join('|');
-
-    data.AddMsgList.forEach((msg) => this.handleMsg(msg));
-  }
-
-  async lookupSyncCheckHost() {
-    for (const host of PUSH_HOST_LIST) {
-      let data;
-      try {
-        data = await rp({
-          uri: 'https://' + host + '/cgi-bin/mmwebwx-bin/synccheck',
-          qs: {
-            r: +new Date,
-            skey: this.skey,
-            sid: this.sid,
-            uin: this.uin,
-            deviceid: makeDeviceID(),
-            synckey: this.formateSyncKey,
-          },
-          timeout: 35e3,
-        });
-      } catch (e) {
-        debug('lookupSyncCheckHost network error', e);
-        // network error retry
-        await this.lookupSyncCheckHost();
-        return;
-      }
-
-      const retcode = data.match(/retcode:"(\d+)"/)[1];
-      if (retcode === '0') return host;
-    }
-  }
-
-  async syncCheck() {
-    let data;
-    try {
-      data = await rp({
-        uri: URLS.API_synccheck,
-        qs: {
-          r: +new Date,
-          skey: this.skey,
-          sid: this.sid,
-          uin: this.uin,
-          deviceid: makeDeviceID(),
-          synckey: this.formateSyncKey,
-        },
-        timeout: 35e3,
-      });
-    } catch (e) {
-      debug('synccheck network error', e);
-      // network error retry
-      return await this.syncCheck();
-    }
-
-    const retcode = data.match(/retcode:"(\d+)"/)[1];
-    const selector = data.match(/selector:"(\d+)"/)[1];
-
-    return { retcode, selector };
-  }
-
-  async notifyMobile() {
-    let data;
-    try {
-      data = await rp({
-        uri: URLS.API_webwxstatusnotify,
-        method: 'POST',
-        json: true,
-        body: {
-          BaseRequest: this.baseRequest,
-          Code: CODES.StatusNotifyCode_INITED,
-          FromUserName: this.my.UserName,
-          ToUserName: this.my.UserName,
-          ClientMsgId: +new Date,
-        },
-      });
-    } catch (e) {
-      debug('notify mobile network error', e);
-      // network error retry
-      await this.notifyMobile();
-      return;
-    }
-
-    if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
-      throw new Error('Notify mobile fail');
-    }
-  }
-
-  async fetchUUID() {
-    let data;
-    try {
-      data = await rp(URLS.API_jsLogin);
-    } catch (e) {
-      debug('fetch uuid network error', e);
-      // network error retry
-      return await this.fetchUUID();
-    }
-
-    if (!/uuid = "(.+)";$/.test(data)) {
-      throw new Error('get uuid failed');
-    }
-
-    const uuid = data.match(/uuid = "(.+)";$/)[1];
-    return uuid;
-  }
-
   async fetchTickets() {
-    let data;
+    let result;
     try {
-      data = await rp(this.redirectUri);
+      result = await req.get(this.redirectUri);
     } catch (e) {
       debug('fetch tickets network error', e);
       // network error, retry
       await this.fetchTickets();
       return;
     }
+
+    const { data } = result;
 
     if (!/<ret>0<\/ret>/.test(data)) {
       throw new Error('Get skey failed, restart login');
@@ -455,24 +327,179 @@ class WeixinBot extends EventEmitter {
     };
   }
 
-  async fetchContact() {
-    let data;
+  async webwxinit() {
+    let result;
     try {
-      data = await rp({
-        uri: URLS.API_webwxgetcontact,
-        qs: {
-          skey: this.skey,
-          pass_ticket: this.passTicket,
-          seq: 0,
+      result = await req.post(
+        URLS.API_webwxinit,
+        { BaseRequest: this.baseRequest },
+        {
+          params: {
+            pass_ticket: this.passTicket,
+            skey: this.skey,
+          },
+        }
+      );
+    } catch (e) {
+      debug('webwxinit network error', e);
+      // network error retry
+      await this.webwxinit();
+      return;
+    }
+
+    const { data } = result;
+
+    if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
+      throw new Error('Init Webwx failed');
+    }
+
+    this.my = data.User;
+    this.syncKey = data.SyncKey;
+    this.formateSyncKey = this.syncKey.List.map((item) => item.Key + '_' + item.Val).join('|');
+  }
+
+  async webwxsync() {
+    let result;
+    try {
+      result = await req.post(
+        URLS.API_webwxsync,
+        {
+          BaseRequest: this.baseRequest,
+          SyncKey: this.syncKey,
+          rr: ~new Date,
+        },
+        {
+          params: {
+            sid: this.sid,
+            skey: this.skey,
+          },
+        }
+      );
+    } catch (e) {
+      debug('webwxsync network error', e);
+      // network error retry
+      await this.webwxsync();
+      return;
+    }
+
+    const { data } = result;
+
+    this.syncKey = data.SyncKey;
+    this.formateSyncKey = this.syncKey.List.map((item) => item.Key + '_' + item.Val).join('|');
+
+    data.AddMsgList.forEach((msg) => this.handleMsg(msg));
+  }
+
+  async lookupSyncCheckHost() {
+    for (const host of PUSH_HOST_LIST) {
+      let result;
+      try {
+        result = await req.get('https://' + host + '/cgi-bin/mmwebwx-bin/synccheck', {
+          params: {
+            r: +new Date,
+            skey: this.skey,
+            sid: this.sid,
+            uin: this.uin,
+            deviceid: makeDeviceID(),
+            synckey: this.formateSyncKey,
+          },
+        });
+      } catch (e) {
+        debug('lookupSyncCheckHost network error', e);
+        // network error retry
+        await this.lookupSyncCheckHost();
+        return;
+      }
+
+      const { data } = result;
+
+      const retcode = data.match(/retcode:"(\d+)"/)[1];
+      if (retcode === '0') return host;
+    }
+  }
+
+  async syncCheck() {
+    let result;
+    try {
+      result = await req.get(URLS.API_synccheck, {
+        params: {
           r: +new Date,
+          skey: this.skey,
+          sid: this.sid,
+          uin: this.uin,
+          deviceid: makeDeviceID(),
+          synckey: this.formateSyncKey,
         },
       });
+    } catch (e) {
+      debug('synccheck network error', e);
+      // network error retry
+      return await this.syncCheck();
+    }
+
+    const { data } = result;
+
+    const retcode = data.match(/retcode:"(\d+)"/)[1];
+    const selector = data.match(/selector:"(\d+)"/)[1];
+
+    return { retcode, selector };
+  }
+
+  async notifyMobile() {
+    let result;
+    try {
+      result = await req.post(
+        URLS.API_webwxstatusnotify,
+        {
+          BaseRequest: this.baseRequest,
+          Code: CODES.StatusNotifyCode_INITED,
+          FromUserName: this.my.UserName,
+          ToUserName: this.my.UserName,
+          ClientMsgId: +new Date,
+        },
+        {
+          params: {
+            lang: 'zh_CN',
+            pass_ticket: this.passTicket,
+          },
+        }
+      );
+    } catch (e) {
+      debug('notify mobile network error', e);
+      // network error retry
+      await this.notifyMobile();
+      return;
+    }
+
+    const { data } = result;
+
+    if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
+      throw new Error('Notify mobile fail');
+    }
+  }
+
+  async fetchContact() {
+    let result;
+    try {
+      result = await req.post(
+        URLS.API_webwxgetcontact,
+        {},
+        {
+          params: {
+            pass_ticket: this.passTicket,
+            skey: this.skey,
+            r: +new Date,
+          },
+        }
+      );
     } catch (e) {
       debug('fetch contact network error', e);
       // network error retry
       await this.fetchContact();
       return;
     }
+
+    const { data } = result;
 
     if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
       throw new Error('Fetch contact fail');
@@ -523,28 +550,30 @@ class WeixinBot extends EventEmitter {
 
   async fetchBatchgetContact(groupIds) {
     const list = groupIds.map((id) => ({ UserName: id, EncryChatRoomId: '' }));
-    let data;
+    let result;
     try {
-      data = await rp({
-        method: 'POST',
-        uri: URLS.API_webwxbatchgetcontact,
-        qs: {
-          type: 'ex',
-          r: +new Date,
-        },
-        json: true,
-        body: {
+      result = await req.post(
+        URLS.API_webwxbatchgetcontact,
+        {
           BaseRequest: this.baseRequest,
           Count: list.length,
           List: list,
         },
-      });
+        {
+          params: {
+            type: 'ex',
+            r: +new Date,
+          },
+        }
+      );
     } catch (e) {
       debug('fetch batchgetcontact network error', e);
       // network error retry
       await this.fetchBatchgetContact(groupIds);
       return;
     }
+
+    const { data } = result;
 
     if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
       throw new Error('Fetch batchgetcontact fail');
@@ -693,14 +722,8 @@ class WeixinBot extends EventEmitter {
   sendText(to, content, callback) {
     const clientMsgId = (+new Date + Math.random().toFixed(3)).replace('.', '');
 
-    rp({
-      uri: URLS.API_webwxsendmsg,
-      method: 'POST',
-      qs: {
-        pass_ticket: this.passTicket,
-      },
-      json: true,
-      body: {
+    req.post(URLS.API_webwxsendmsg,
+      {
         BaseRequest: this.baseRequest,
         Msg: {
           Type: CODES.MSGTYPE_TEXT,
@@ -711,7 +734,13 @@ class WeixinBot extends EventEmitter {
           ClientMsgId: clientMsgId,
         },
       },
-    }).then((data) => {
+      {
+        params: {
+          pass_ticket: this.passTicket,
+        },
+      }
+    ).then((result) => {
+      const { data } = result;
       callback = callback || (() => (null));
       if (!data || !data.BaseResponse || data.BaseResponse.Ret !== 0) {
         return callback(new Error('Send text fail'));
