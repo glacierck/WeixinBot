@@ -97,6 +97,7 @@ class WeixinBot extends EventEmitter {
     this.my = null;
     this.syncKey = null;
     this.formateSyncKey = '';
+    this.deviceid = makeDeviceID();
 
     // member store
     this.Members = new Datastore();
@@ -214,20 +215,7 @@ class WeixinBot extends EventEmitter {
 
     URLS = getUrls({ baseHost: this.baseHost, pushHost: this.pushHost });
 
-    const { selector, retcode } = await this.syncCheck();
-    if (retcode !== '0') {
-      debug('你在其他地方登录或登出了微信，正在尝试重新登录...');
-      this.init();
-      return;
-    }
-
-    if (selector !== '0') {
-      this.webwxsync();
-    }
-
-    this.checkSyncTimer = setTimeout(() => {
-      this.runLoop();
-    }, 3e3);
+    this.syncCheck();
 
     // auto update Contacts every ten minute
     this.updataContactTimer = setInterval(() => {
@@ -351,7 +339,7 @@ class WeixinBot extends EventEmitter {
       Uin: parseInt(this.uin, 10),
       Sid: this.sid,
       Skey: this.skey,
-      DeviceID: makeDeviceID(),
+      DeviceID: this.deviceid,
     };
 
     fs.writeFileSync(secretPath, JSON.stringify({
@@ -359,6 +347,7 @@ class WeixinBot extends EventEmitter {
       sid: this.sid,
       uin: this.uin,
       passTicket: this.passTicket,
+      baseHost: this.baseHost,
       baseRequest: this.baseRequest,
     }), 'utf8');
   }
@@ -408,6 +397,7 @@ class WeixinBot extends EventEmitter {
           params: {
             sid: this.sid,
             skey: this.skey,
+            pass_ticket: this.passTicket,
           },
         }
       );
@@ -427,7 +417,7 @@ class WeixinBot extends EventEmitter {
   }
 
   async lookupSyncCheckHost() {
-    for (const host of PUSH_HOST_LIST) {
+    for (let host of PUSH_HOST_LIST) {
       let result;
       try {
         result = await req.get('https://' + host + '/cgi-bin/mmwebwx-bin/synccheck', {
@@ -436,15 +426,15 @@ class WeixinBot extends EventEmitter {
             skey: this.skey,
             sid: this.sid,
             uin: this.uin,
-            deviceid: makeDeviceID(),
+            deviceid: this.deviceid,
             synckey: this.formateSyncKey,
+            _: +new Date,
           },
         });
       } catch (e) {
-        debug('lookupSyncCheckHost network error', e);
+        debug('lookupSyncCheckHost network error', host);
         // network error retry
-        await this.lookupSyncCheckHost();
-        return;
+        break;
       }
 
       const { data } = result;
@@ -457,16 +447,20 @@ class WeixinBot extends EventEmitter {
   async syncCheck() {
     let result;
     try {
-      result = await req.get(URLS.API_synccheck, {
-        params: {
-          r: +new Date,
-          skey: this.skey,
-          sid: this.sid,
-          uin: this.uin,
-          deviceid: makeDeviceID(),
-          synckey: this.formateSyncKey,
-        },
-      });
+      result = await req.get(
+        URLS.API_synccheck,
+        {
+          params: {
+            r: +new Date(),
+            skey: this.skey,
+            sid: this.sid,
+            uin: this.uin,
+            deviceid: this.deviceid,
+            synckey: this.syncKey,
+            _: +new Date(),
+          },
+        }
+      );
     } catch (e) {
       debug('synccheck network error', e);
       // network error retry
@@ -478,7 +472,20 @@ class WeixinBot extends EventEmitter {
     const retcode = data.match(/retcode:"(\d+)"/)[1];
     const selector = data.match(/selector:"(\d+)"/)[1];
 
-    return { retcode, selector };
+    if (retcode !== '0') {
+      debug('你在其他地方登录或登出了微信，正在尝试重新登录...');
+      this.runLoop();
+      return;
+    }
+
+    if (selector !== '0') {
+      this.webwxsync();
+    }
+
+    clearTimeout(this.checkSyncTimer);
+    this.checkSyncTimer = setTimeout(() => {
+      this.syncCheck();
+    }, 3e3);
   }
 
   async notifyMobile() {
@@ -705,6 +712,7 @@ class WeixinBot extends EventEmitter {
     }
 
     msg.Member = await this.getMember(msg.FromUserName);
+    if (!msg.Member) return;
     debug(`
       新消息
       ${msg.Member.RemarkName || msg.Member.NickName}: ${msg.Content}

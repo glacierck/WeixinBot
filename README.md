@@ -47,6 +47,9 @@ bot.run()
 DEBUG=weixinbot node index.js
 ```
 
+### Feature
+Remember previous login secret, when secret is valid, we can direct login without scan qrcode
+
 ### [API Doc](https://github.com/feit/weixinbot/tree/master/docs/API.md)
 
 ### License

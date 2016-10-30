@@ -11,7 +11,7 @@ export function getUrls({
     QRCODE_PATH: 'https://login.weixin.qq.com/qrcode/',
     API_jsLogin: 'https://login.' + weixinHost + '/jslogin',
     API_login: 'https://login.' + weixinHost + '/cgi-bin/mmwebwx-bin/login',
-    API_synccheck: 'https://' + pushHost + '/cgi-bin/mmwebwx-bin/synccheck',
+    API_synccheck: 'https://' + baseHost + '/cgi-bin/mmwebwx-bin/synccheck',
     API_webwxdownloadmedia: 'https://' + fileHost + '/cgi-bin/mmwebwx-bin/webwxgetmedia',
     API_webwxuploadmedia: 'https://' + fileHost + '/cgi-bin/mmwebwx-bin/webwxuploadmedia',
     API_webwxpreview: 'https://' + baseHost + '/cgi-bin/mmwebwx-bin/webwxpreview',
@@ -196,11 +196,9 @@ export const SP_ACCOUNTS = 'newsapp,fmessage,filehelper,weibo,qqmail,fmessage,' 
   'gh_22b87fa7cb3c,wxitil,userexperience_alarm,notification_messages';
 
 export const PUSH_HOST_LIST = [
+  'webpush.wx2.qq.com',
+  'webpush.wx8.qq.com',
   'webpush.weixin.qq.com',
-  'webpush2.weixin.qq.com',
-  'webpush.wechat.com',
-  'webpush1.wechat.com',
-  'webpush2.wechat.com',
-  'webpush.wechatapp.com',
-  'webpush1.wechatapp.com',
+  'webpush.web2.wechat.com',
+  'webpush.web.wechat.com',
 ];
