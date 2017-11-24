@@ -1,10 +1,9 @@
 /* eslint-disable prefer-template */
 
-export function getUrls({
+module.exports.getUrls = function getUrls({
   baseHost = 'wx2.qq.com',
   weixinHost = 'weixin.qq.com',
   fileHost = 'file.wx.qq.com',
-  pushHost = 'webpush.weixin.qq.com',
 }) {
   return {
     LANG: 'zh_CN',
@@ -40,9 +39,9 @@ export function getUrls({
     API_webwxsearch: 'https://' + baseHost + '/cgi-bin/mmwebwx-bin/webwxsearchcontact',
     API_webwxoplog: 'https://' + baseHost + '/cgi-bin/mmwebwx-bin/webwxoplog',
   };
-}
+};
 
-export const CODES = {
+module.exports.CODES = {
   oplogCmdId: {
     TOPCONTACT: 3,
     MODREMARKNAME: 2,
@@ -188,14 +187,14 @@ export const CODES = {
   MM_EMOTICON_WEB: '_web',
 };
 
-export const SP_ACCOUNTS = 'newsapp,fmessage,filehelper,weibo,qqmail,fmessage,' +
+module.exports.SP_ACCOUNTS = 'newsapp,fmessage,filehelper,weibo,qqmail,fmessage,' +
   'tmessage,qmessage,qqsync,floatbottle,lbsapp,shakeapp,medianote,qqfriend,' +
   'readerapp,blogapp,facebookapp,masssendapp,meishiapp,feedsapp,voip,' +
   'blogappweixin,weixin,brandsessionholder,weixinreminder,wxid_novlwrv3lqwv11,' +
   'gh_22b87fa7cb3c,officialaccounts,notification_messages,wxid_novlwrv3lqwv11,' +
   'gh_22b87fa7cb3c,wxitil,userexperience_alarm,notification_messages';
 
-export const PUSH_HOST_LIST = [
+module.exports.PUSH_HOST_LIST = [
   'webpush.wx2.qq.com',
   'webpush.wx8.qq.com',
   'webpush.weixin.qq.com',

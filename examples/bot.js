@@ -1,7 +1,4 @@
-require('reify');
-require('async-to-gen/register');
-
-const Weixinbot = require('../src/weixinbot');
+const Weixinbot = require('../weixinbot');
 
 const bot = new Weixinbot();
 

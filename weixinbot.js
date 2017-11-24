@@ -1,29 +1,31 @@
 /* eslint-disable quote-props,no-constant-condition,
   prefer-template,consistent-return,new-cap,no-param-reassign */
-import fs from 'fs';
-import url from 'url';
-import path from 'path';
-import http from 'http';
-import https from 'https';
-import axios from 'axios';
-import Debug from 'debug';
-import touch from 'touch';
-import tough from 'tough-cookie';
-import Datastore from 'nedb';
-import Promise from 'bluebird';
-import EventEmitter from 'events';
-import nodemailer from 'nodemailer';
-import qrcode from 'qrcode-terminal';
-import FileCookieStore from 'tough-cookie-filestore';
-import axiosCookieJarSupport from 'node-axios-cookiejar';
+const fs = require('fs');
+const url = require('url');
+const path = require('path');
+const http = require('http');
+const https = require('https');
+const axios = require('axios');
+const Debug = require('debug');
+const touch = require('touch');
+const tough = require('tough-cookie');
+const Datastore = require('nedb');
+const Promise = require('bluebird');
+const EventEmitter = require('events');
+const nodemailer = require('nodemailer');
+const qrcode = require('qrcode-terminal');
+const FileCookieStore = require('tough-cookie-filestore');
+const axiosCookieJarSupport = require('node-axios-cookiejar');
 
-import { getUrls, CODES, SP_ACCOUNTS, PUSH_HOST_LIST } from './conf';
+const {
+  getUrls, CODES, SP_ACCOUNTS, PUSH_HOST_LIST,
+} = require('./conf');
 
 Promise.promisifyAll(Datastore.prototype);
 const debug = Debug('weixinbot');
 
 let URLS = getUrls({});
-const logo = fs.readFileSync(path.join(__dirname, '..', 'logo.txt'), 'utf8');
+const logo = fs.readFileSync(path.join(__dirname, 'logo.txt'), 'utf8');
 
 // try persistent cookie
 const cookiePath = path.join(process.cwd(), '.cookie.json');

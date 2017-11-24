@@ -19,7 +19,7 @@ npm install weixinbot --save
 
 ### Usage
 ```js
-// Require Nodejs v4+
+// Require Nodejs v8+
 
 // index.js
 const Weixinbot = require('weixinbot')
