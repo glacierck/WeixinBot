@@ -713,14 +713,26 @@ class WeixinBot extends EventEmitter {
       return;
     }
 
-    msg.Member = await this.getMember(msg.FromUserName);
-    if (!msg.Member) return;
-    debug(`
-      新消息
-      ${msg.Member.RemarkName || msg.Member.NickName}: ${msg.Content}
-    `);
 
-    this.emit('friend', msg);
+
+
+    if(msg.ToUserName == 'filehelper'){//自己发给文件助手的
+        this.emit('to_filehelper', msg,CODES);
+    }else{
+        msg.Member = await this.getMember(msg.FromUserName);
+        if (!msg.Member){
+            return;
+        }
+
+        debug(`
+        新消息
+        ${msg.Member.RemarkName || msg.Member.NickName}: ${msg.Content}
+      `);
+        this.emit('friend', msg,CODES);
+    }
+
+
+
     // if (msg.MsgType === CODES.MSGTYPE_SYSNOTICE) {
     //   return;
     // }
