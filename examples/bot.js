@@ -4,6 +4,56 @@ const bot = new Weixinbot();
 
 const _head_img = '[Pig] ：';
 
+
+/*
+* 知言机器人配置
+* */
+const Nextai = require('../nextai');
+const isdebug = false;
+const nai = new Nextai({
+    token:'856C53213FEF50370E5BD0484AC7BD8B',
+});
+
+nai.on('iqa', (msg) => {
+    console.log('iqa >>>');
+    console.log(JSON.stringify(msg, null, 2));
+
+    // bot.sendText(msg.botmsg.ToUserName, _head_img + msg.botmsg.Content);
+
+    try {
+        const iqa_answer = nai.delHtmlTag(msg.result.tip[0].answer) ;
+        if(iqa_answer){
+            bot.sendText(msg.botmsg.ToUserName, _head_img +  iqa_answer);
+        }
+    } catch (e) {
+        console.error(e);
+    }
+
+
+});
+nai.on('event', (msg) => {
+    console.log('event >>>');
+    console.log(JSON.stringify(msg, null, 2));
+});
+nai.on('echo', (msg) => {
+    console.log('echo >>>');
+    console.log(JSON.stringify(msg, null, 2));
+});
+nai.on('ask', (msg) => {
+    console.log('ask >>>');
+    console.log(JSON.stringify(msg, null, 2));
+});
+nai.on('confirm', (msg) => {
+    console.log('confirm >>>');
+    console.log(JSON.stringify(msg, null, 2));
+});
+nai.on('dim', (msg) => {
+    console.log('dim >>>');
+    console.log(JSON.stringify(msg, null, 2));
+});
+
+
+
 bot.on('qrcode', console.log);
 
 bot.on('to_filehelper', (msg,CODES) => {
@@ -27,7 +77,14 @@ bot.on('to_filehelper', (msg,CODES) => {
         break;
       case CODES.MSGTYPE_TEXT:
         try {
-            bot.sendText(msg.ToUserName, _head_img + msg.Content);
+
+            nai.send({
+                uid:msg.FromUserName,
+                txt:msg.Content,
+                timestamp:msg.CreateTime,
+                botmsg:msg,
+            });
+
         } catch (e) {
           console.error(e);
         }
@@ -101,4 +158,7 @@ bot.on('friend', (msg,CODES) => {
   // bot.sendText(msg.FromUserName, 'Got it');
 });
 
+
 bot.run();
+
+

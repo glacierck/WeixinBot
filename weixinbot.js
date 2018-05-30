@@ -713,9 +713,6 @@ class WeixinBot extends EventEmitter {
       return;
     }
 
-
-
-
     if(msg.ToUserName == 'filehelper'){//自己发给文件助手的
         this.emit('to_filehelper', msg,CODES);
     }else{
